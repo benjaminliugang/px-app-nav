@@ -55,6 +55,16 @@
        * dropdown under the top-level item. Each subitem must have a `path`
        * and `label` defined. If an `icon` or `children` property is defined
        * on a subitem, those properties will be ignored.
+       * - {Boolean} opened - (only valid if item has children) A boolean value
+       * that set the group to open by default.
+       *
+       * The following optional properties can only be used on items with no children:
+       *
+       * - {String} href - Overrides the default route navigation and instead opens the specified
+       * external link. (customize window/tab behavior using window property)
+       * - {String} window - (only valid if `href` used) String that identifies
+       * the window/tab to open the external link in. Use '_self' for current window/tab,
+       * a name to renavigate a named window/tab, or exclude this property for a new window/tab.
        *
        * The following is an example of a list of valid nav items:
        *
@@ -63,7 +73,8 @@
        *       { "label" : "Alerts", "id" : "alerts", "icon" : "px-fea:alerts" },
        *       { "label" : "Assets", "id" : "assets", "icon" : "px-fea:asset", "children": [
        *         { "label" : "Asset #1", "id" : "a1" },
-       *         { "label" : "Asset #2", "id" : "a2" }
+       *         { "label" : "Asset #2", "id" : "a2" },
+       *         { "label" : "Asset #3 (ext)", "id" : "a3", href: "https://predix-ui.com" }
        *       ] }
        *     ]
        *
@@ -144,6 +155,8 @@
        * - label: [default='label'] a human-readable label
        * - icon: [default='icon'] an icon configuration string
        * - children: [default='children'] an array of child items
+       * - href: [default='href'] URL to navigate to on selection
+       * - window: [default='window'] browsing context that navigation will occur on
        *
        * If you want to configure any keys, you must set all the keys. If any
        * of the keys are not defined, the navigation will fail.
@@ -154,7 +167,9 @@
        *       "id" : "assetId",
        *       "label" : "assetName",
        *       "icon" : "assetIcon",
-       *       "children" : "subAssets"
+       *       "children" : "subAssets",
+       *       "href": "href",
+       *       "window": "window"
        *     }
        *
        * @property keys
@@ -216,8 +231,13 @@
       },
 
       /**
-       * When `true`, the vertical navigation is open and the user is interacting
-       * with it. When `false`, the vertical navigation is closed.
+       * When `true`, the vertical navigation is open. 
+       * When `false`, the vertical navigation is closed.
+       * 
+       * This property is controlled by two means:
+       *    1. when `verticalOpenedAt` is configured and its
+       *        value is currently below `_parentWidth`
+       *    2. otherwise, `mouseenter` and `mouseleave` events
        */
       verticalOpened: {
         type: Boolean,
@@ -225,6 +245,18 @@
         notify: true,
         readOnly: true,
         reflectToAttribute: true
+      },
+
+      /**
+       * The parent container width at which the vertical navigation should be opened. 
+       * Use a number (e.g. `600`) which will be converted to a pixel value (e.g. '600px').
+       * 
+       * This property will overwrite the `verticalOpened` property. Avoid data
+       * binding in both properties at the same time.
+       */
+      verticalOpenedAt: {
+        type: Number,
+        observer: 'rebuild'
       },
 
       /**
@@ -297,9 +329,35 @@
         type: HTMLElement
       },
 
+      /**
+       * Available width within the `px-app-nav` container element.
+       */
       _availableWidth: {
         type: Number,
         observer: 'rebuild'
+      },
+
+      /**
+       * Width of the `px-app-nav` parent element.
+       */
+      _parentWidth: {
+        type: Number,
+        observer: 'rebuild'
+      },
+
+      /**
+       * Integer value in [ms] to delay opening the vertical nav until the mouse
+       * has hover the specified time.
+       */
+      delaySlideAnimation: {
+        type: Number,
+        value: 0,
+        reflectToAttribute: true
+      },
+
+      _delayAnimationAsyncHandler: {
+        type: Number,
+        value: undefined
       }
     },
 
@@ -325,7 +383,20 @@
       'mouseenter' : '_handleMouseEnter',
       'mouseleave' : '_handleMouseLeave',
       'px-app-asset-graph-created' : 'rebuild',
-      'px-app-nav-rebuilt' : '_handleRebuild'
+      'px-app-nav-rebuilt' : '_handleRebuild',
+      'tap' : '_handleTap'
+    },
+
+    _handleTap() {
+      // Force navigation bar open on click to eliminate weird double slide animation effect.
+      this._setVerticalOpened(true);
+    },
+
+    ready() {
+      // Update `keys` map with `href` and `window` values
+      // TODO: Move to `px-app-helpers`
+      if (!this.keys.href) this.keys.href = 'href';
+      if (!this.keys.window) this.keys.window = 'window';
     },
 
     _handleRebuild() {
@@ -341,19 +412,29 @@
     },
 
     _handleMouseEnter() {
-      if (!this.vertical) return;
+      if (!this.vertical || this._isVerticalOpenedByThreshold()) return;
 
       this._mouseIsOverNav = true;
-      if (this.isDebouncerActive('close-nav-on-mouseleave')) {
-        this.cancelDebouncer('close-nav-on-mouseleave');
-      }
-      if (this._mouseIsOverNav && !this.verticalOpened) {
-        this._setVerticalOpened(true);
-      }
+
+      var delay = this.delaySlideAnimation;
+      this._delayAnimationAsyncHandler = this.async(() => {
+        if (this.isDebouncerActive('close-nav-on-mouseleave')) {
+          this.cancelDebouncer('close-nav-on-mouseleave');
+        }
+
+        if (this._mouseIsOverNav && !this.verticalOpened) {
+          this._setVerticalOpened(true);
+        }
+      }, delay);
     },
 
     _handleMouseLeave() {
-      if (!this.vertical) return;
+      if (!this.vertical || this._isVerticalOpenedByThreshold()) return;
+
+      if (this._delayAnimationAsyncHandler) {
+        this.cancelAsync(this._delayAnimationAsyncHandler);
+        this._delayAnimationAsyncHandler = undefined;
+      }
 
       this._mouseIsOverNav = false;
       this.debounce('close-nav-on-mouseleave', function() {
@@ -395,6 +476,7 @@
 
     /**
      * Updates the selected item when the user taps on a nav item button.
+     * If the button was for an external link, have window open it.
      */
     _itemSelectedByEvent(evt) {
       if (evt.detail.item) {
@@ -411,17 +493,17 @@
      * will not be triggered.
      */
     _handleResize(evt) {
-      if (this.collapseAll || this.vertical) return;
+      if (this.collapseAll || (this.vertical && typeof this.verticalOpenedAt !== 'number')) return;
 
-      const debouncer = 'measure-available-width';
-      if (typeof this._availableWidth !== 'number') {
-        this._measureAvailableWidth();
+      const debouncer = 'measure-available-and-parent-width';
+      if (typeof this._availableWidth !== 'number' || typeof this._parentWidth !== 'number') {
+        this._measureAvailableAndParentWidth();
         return;
       }
       if (this.isDebouncerActive(debouncer)) {
         this.cancelDebouncer(debouncer);
       }
-      this.debounce(debouncer, this._measureAvailableWidth.bind(this), 100);
+      this.debounce(debouncer, this._measureAvailableAndParentWidth.bind(this), 100);
     },
 
     /**
@@ -430,15 +512,22 @@
      * overflowed. Measurements happen in the next animation frame, ensuring
      * we don't trigger a premature reflow and that the tab is visible.
      */
-    _measureAvailableWidth() {
+    _measureAvailableAndParentWidth() {
       window.requestAnimationFrame(() => {
         const containerEl = this.$.container;
         const actionsEl = this.$.actions;
-        if (!containerEl || !actionsEl) return;
-        const containerWidth = containerEl.getBoundingClientRect().width;
-        const actionsWidth = actionsEl.getBoundingClientRect().width;
-        const width = containerWidth - actionsWidth;
-        if (this._availableWidth !== width) this.set('_availableWidth', width);
+        if (containerEl && actionsEl) {
+          const containerWidth = containerEl.getBoundingClientRect().width;
+          const actionsWidth = actionsEl.getBoundingClientRect().width;
+          const width = containerWidth - actionsWidth;
+          if (this._availableWidth !== width) this.set('_availableWidth', width);
+        }
+
+        const parentEl = this.parentElement;
+        if (parentEl) {
+          const width = parentEl.getBoundingClientRect().width;
+          if (this._parentWidth !== width) this.set('_parentWidth', width);
+        }
       });
     },
 
@@ -454,9 +543,13 @@
      * @return {Array.<Array>} - First item is the list of visible items (if any), second item is the list of overflowed items (if any)
      */
     rebuild() {
-      if (!this.items || !Array.isArray(this.items) || (!this.collapseAll && !this.vertical && typeof this._availableWidth !== 'number')) return;
+      if (!this.items || !Array.isArray(this.items) || 
+          (!this.collapseAll && !this.vertical && typeof this._availableWidth !== 'number') || 
+          (this.vertical && typeof this.verticalOpenedAt !== 'number' && !this._parentWidth)) return;
 
       if (this.vertical) {
+        if (this.verticalOpenedAt >= 0) this._setVerticalOpened(this._parentWidth > this.verticalOpenedAt);
+
         this._setVisibleItems(this.items.slice(0));
         this._setOverflowedItems([]);
         return [this.visibleItems, this.overflowedItems];
@@ -707,11 +800,12 @@
      *
      * @return {Number|undefined}
      */
-    _getDropdownWidth(allCollapsed) {
-      if (allCollapsed) {
-        const width = parseInt(this.getComputedStyleValue('--px-app-nav-collapsed-width'));
-        return isNaN(width) ? 320 : width;
-      }
+    _getDropdownWidth(allCollapsed, anyOverflowed) {
+      const width = parseInt(this.getComputedStyleValue('--px-app-nav-collapsed-width'));
+      if (allCollapsed && !isNaN(width)) return width; 
+      else if (allCollapsed) return 350;
+      else if (anyOverflowed) return undefined;
+      else return 320;
     },
 
     /**
@@ -749,6 +843,16 @@
      */
     _isCollapsedDropdownEmpty(selectedItem, allCollapsed, collapseWithIcon) {
       return allCollapsed && !collapseWithIcon && (!selectedItem || typeof selectedItem !== 'object');
+    },
+
+    /**
+     * Checks if the sub group should be opened.
+     *
+     * @param  {Object|null} item
+     * @return {Boolean}
+     */
+    _isOpened(item) {
+      return item.opened === true;
     },
 
     /**
@@ -826,6 +930,14 @@
      */
     _isIconEmpty(item, iconKey) {
       return (!item.hasOwnProperty(iconKey) || typeof item[iconKey] !== 'string' && item[iconKey].length >= 0);
+    },
+
+    /**
+     * Checks if the vertical navigation is currently opened 
+     * by means of the `verticalOpenedAt` property.
+     */
+    _isVerticalOpenedByThreshold() {
+      return this.verticalOpened && typeof this.verticalOpenedAt === 'number' && this._parentWidth > this.verticalOpenedAt;
     },
 
     /**

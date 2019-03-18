@@ -1,5 +1,4 @@
 v2.2.4
-==================
 * Use Margin left and right to icons, so when direction is changed it works on all browsers
 * and we dont need browser specific fixes
 
@@ -18,6 +17,34 @@ v2.2.1
 v2.2.0
 ==================
 * add strokeWidth in nav item
+=======
+v3.1.0
+=================
+* Adding ability to handle `opened` property on items with children. When configured, the subgroup dropdown is open by default in overflow, collapsed and vertical states.
+
+v3.0.0
+=================
+* Replacing `vertical-expanded` propert with `vertical-opened-at` property for dynamic open behaviour on vertical navigations
+
+
+v2.3.2
+=================
+* Adding title attribute to item and subitem labels
+
+v2.3.1
+==================
+* Fixing collapsed and vertical dropdown width & padding
+* Fixing collapsed dropdown box-shaddow
+
+v2.3.0
+==================
+* Items now support `href` and `window` properties for navigation to user-defined URLs
+* Added `delaySlideAnimation` property to px-app-nav for optionally specifying a timeout (in ms) before the vertical nav expands after hover
+
+v2.2.0
+==================
+* Added `vertical-expanded` property to allow vertical px-app-nav instances to be permanently expanded
+* Fixed missing drop shadow on sub navigation
 
 v2.1.7
 ==================
