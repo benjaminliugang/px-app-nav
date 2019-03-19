@@ -1,3 +1,7 @@
+v3.1.0
+==================
+* Sync upstream master to add tooltip for launchpad item
+
 v2.2.4
 ==================
 * Use Margin left and right to icons, so when direction is changed it works on all browsers
