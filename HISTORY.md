@@ -1,4 +1,5 @@
 v2.2.4
+==================
 * Use Margin left and right to icons, so when direction is changed it works on all browsers
 * and we dont need browser specific fixes
 
