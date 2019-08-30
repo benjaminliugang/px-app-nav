@@ -1,3 +1,7 @@
+v3.1.2
+==================
+* Reverse the icons when the direction is RTL
+
 v3.1.0
 ==================
 * Sync upstream master to add tooltip for launchpad item
